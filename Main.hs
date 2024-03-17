@@ -8,9 +8,17 @@ import Servant
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Monad.IO.Class (liftIO)
+import Data.Maybe (fromMaybe, mapMaybe)
+import System.Directory (doesFileExist) 
+import Data.List.Split (splitOn)
+
+import RaftUtils
+
+
 
 -- Define API endpoints
-type API = "hello" :> QueryParam "msg" String :> Get '[PlainText] String
+type API = 
+           "hello" :> QueryParam "msg" String :> Get '[PlainText] String
       :<|> "bye"   :> QueryParam "msg" String :> Get '[PlainText] String
 
 -- Define server handlers
@@ -27,20 +35,38 @@ server mvar = helloHandler :<|> byeHandler
       liftIO $ putMVar mvar ("Bye, " ++ msg ++ "!")
       return $ "Bye, " ++ msg ++ "!"
 
--- Function to continuously read and log the value from the MVar
-logMVar :: MVar String -> IO ()
-logMVar mvar = do
-  value <- takeMVar mvar
-  putStrLn $ "Logged value: " ++ value
-  logMVar mvar  -- Recursively call to continuously read and log
-
 -- Create a servant application
 app :: MVar String -> Application
 app mvar = serve (Proxy :: Proxy API) (server mvar)
 
--- Main function to start the server
+
+-- Function to continuously read and log the value from the MVar
+-- It blocks whenever the MVar is empty, there is nothing to do 
+-- This function is to be run in a thread and orchestrates Raft messages 
+-- for this node
+runRaftMainLoop :: MVar String -> IO ()
+runRaftMainLoop mvar = do
+  value <- takeMVar mvar
+  putStrLn $ "Logged value: " ++ value
+  runRaftMainLoop mvar  -- Recursively call to continuously read and log
+
+
+
+
+-- When the Raft node starts or restores from crash, 
+-- it starts here 
 main :: IO ()
 main = do
-  mvar <- newEmptyMVar
-  _ <- forkIO $ logMVar mvar  -- Start the logging thread
-  run 8080 (app mvar)
+  maybeConfig <- loadRaftConfigFromDisk "node_config.json"
+
+  case maybeConfig of
+    Just config -> writeRaftConfigToDisk config "node_config_2.json"
+    Nothing -> putStrLn "Failed to load config"
+
+
+
+
+  -- -- Launch Raft
+  -- mvar <- newEmptyMVar
+  -- _ <- forkIO $ runRaftMainLoop mvar  -- Start the logging thread
+  -- run 8080 (app mvar)
