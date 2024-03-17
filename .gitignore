@@ -1,0 +1,22 @@
+# Stack related
+.stack-work/
+
+# Cabal related
+dist/
+cabal.project.local
+cabal.project.local~
+*.cabal
+
+# Compiled files
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+*.p_hi
+*.p_o
+
+# Dependency directories
+.cabal-sandbox/
+cabal.sandbox.config
+cabal.config
+dist-newstyle/
