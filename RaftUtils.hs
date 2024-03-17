@@ -6,12 +6,17 @@ module RaftUtils (
     writeRaftConfigToDisk
 ) where
 
+-- Imports 
 import GHC.Generics
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as TE
 import System.Directory (doesFileExist)
+import Data.Set (Set)
+import qualified Data.Set as Set
 
+
+-- Definition of data types 
 
 data Log = Log Int String Log | EmptyLog deriving (Show, Generic)
 instance ToJSON Log
@@ -25,12 +30,21 @@ data Node = Node String deriving (Show, Generic)
 instance ToJSON Node
 instance FromJSON Node
 
+type TermNumber = Int 
+type CommitLength = Int 
+type SentLogLength = [(Node, Int)]
+type AckedLogLength = [(Node, Int)]
+
+-- Stable storage for the Raft algorithm 
+-- Some values need to be persisted to disk at all times 
+-- We implement simple methods that allow us to retrieve and 
+-- persist these stable configs as files. 
 data RaftStableConfig = RaftStableConfig
     { 
-      sCurrentTerm :: Int
-    , sVotedFor :: Maybe Node
-    , sUncommitedLog :: Log
-    , sCommitLength :: Int
+      sCurrentTerm      :: TermNumber
+    , sVotedFor         :: Maybe Node
+    , sUncommitedLog    :: Log
+    , sCommitLength     :: CommitLength
     } deriving (Show, Generic)
 
 instance ToJSON RaftStableConfig
@@ -42,20 +56,24 @@ serializeStableConfig = encode
 deserializeStableConfig :: BL.ByteString -> Maybe RaftStableConfig
 deserializeStableConfig = decode
 
+
+-- The whole set of variables needs to be accesible during execution 
+-- Some of these are stable, some others are volatile 
+-- We define a homogeneous type that combines both type of variables 
 data RaftConfig = RaftConfig
     { 
-      currentTerm :: Int
-    , votedFor :: Maybe Node
-    , uncommitedLog :: Log
-    , commitLength :: Int
-    , currentRole :: Role 
-    , currentLeader :: Maybe Node 
-    , votesReceived :: [Node] -- Check 
-    , sentLength :: [String] -- Check 
-    , ackedLength :: [String] -- Check 
+      currentTerm       :: TermNumber
+    , votedFor          :: Maybe Node
+    , uncommitedLog     :: Log
+    , commitLength      :: CommitLength
+    , currentRole       :: Role 
+    , currentLeader     :: Maybe Node 
+    , votesReceived     :: Set Node
+    , sentLength        :: SentLogLength
+    , ackedLength       :: AckedLogLength
     } deriving (Show, Generic)
 
--- Define a default RaftConfig instance
+-- When a node is created, it loads with this default config 
 defaultRaftConfig :: RaftConfig
 defaultRaftConfig = RaftConfig
     { currentTerm = 0
@@ -64,11 +82,12 @@ defaultRaftConfig = RaftConfig
     , commitLength = 0
     , currentRole = Follower
     , currentLeader = Nothing
-    , votesReceived = []
+    , votesReceived = Set.empty
     , sentLength = []
     , ackedLength = []
     }
 
+-- Given a config path, it deserializes the file into a RaftConfig
 loadRaftConfigFromDisk :: FilePath -> IO (Maybe RaftConfig)
 loadRaftConfigFromDisk path = do
     fileExists <- doesFileExist path
@@ -81,26 +100,27 @@ loadRaftConfigFromDisk path = do
                 Nothing -> return Nothing
         else return $ Just defaultRaftConfig
 
-
+-- Serializes a RaftConfig into a file
 writeRaftConfigToDisk :: RaftConfig -> FilePath -> IO ()
 writeRaftConfigToDisk stableConfig path = do
     let serializedConfig = serializeStableConfig (convertToRaftStableConfig stableConfig)
     BL.writeFile path serializedConfig
 
--- Convert RaftStableConfig to RaftConfig, filling in default values for missing fields
+-- Helper function that converts a RaftStableConfig into a RaftConfig by adding default values 
 convertToRaftConfig :: RaftStableConfig -> RaftConfig
 convertToRaftConfig stableConfig = RaftConfig
     { currentTerm = sCurrentTerm stableConfig
     , votedFor = sVotedFor stableConfig
     , uncommitedLog = sUncommitedLog stableConfig
     , commitLength = sCommitLength stableConfig
-    , currentRole = Follower -- Default value for currentRole
-    , currentLeader = Nothing -- Default value for currentLeader
-    , votesReceived = [] -- Default value for votesReceived
-    , sentLength = [] -- Default value for sentLength
-    , ackedLength = [] -- Default value for ackedLength
+    , currentRole = Follower    
+    , currentLeader = Nothing   
+    , votesReceived = Set.empty 
+    , sentLength = []
+    , ackedLength = []
     }
 
+-- Helper function that converts a RaftConfig into a RaftStableConfig by erasing volatile values 
 convertToRaftStableConfig :: RaftConfig -> RaftStableConfig
 convertToRaftStableConfig raftConfig = RaftStableConfig
     { sCurrentTerm = currentTerm raftConfig
