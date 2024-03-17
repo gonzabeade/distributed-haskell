@@ -62,7 +62,17 @@ main = do
 
   -- Initialisation - Recover config from disk or default on first startup 
   maybeConfig <- loadRaftConfigFromDisk "node_config.json"
-  print maybeConfig
+
+  case maybeConfig of
+    Just config -> do
+      modifiedConfig <- setUncommittedLog config (Log 4 "Hello" (Log 7 "Bye" EmptyLog))
+      modifiedConfig <- setCurrentTerm config 56
+      modifiedConfig <- setCommitLength config 67
+      modifiedConfig <- setVotedFor config (Just $ Node "192.123.67.87")
+
+
+      print modifiedConfig
+
 
   -- Launch Raft
   -- mvar <- newEmptyMVar

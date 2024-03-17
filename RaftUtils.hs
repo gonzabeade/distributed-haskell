@@ -2,9 +2,23 @@
 
 module RaftUtils (
     RaftConfig(..),
+    RaftStableConfig(..),
+    Role(..),
+    Node(..),
+    Log(..),
     loadRaftConfigFromDisk,
-    writeRaftConfigToDisk
+    writeRaftConfigToDisk,
+    setCurrentTerm,
+    setVotedFor,
+    setUncommittedLog,
+    setCommitLength,
+    setCurrentRole,
+    setCurrentLeader,
+    setVotesReceived,
+    setSentLength,
+    setAckedLength
 ) where
+
 
 -- Imports 
 import GHC.Generics
@@ -15,9 +29,11 @@ import System.Directory (doesFileExist)
 import Data.Set (Set)
 import qualified Data.Set as Set
 
+-- Config path 
+configPath :: String
+configPath = "node_config.json"
 
 -- Definition of data types 
-
 data Log = Log Int String Log | EmptyLog deriving (Show, Generic)
 instance ToJSON Log
 instance FromJSON Log
@@ -43,7 +59,7 @@ data RaftStableConfig = RaftStableConfig
     { 
       sCurrentTerm      :: TermNumber
     , sVotedFor         :: Maybe Node
-    , sUncommitedLog    :: Log
+    , sUncommittedLog    :: Log
     , sCommitLength     :: CommitLength
     } deriving (Show, Generic)
 
@@ -64,7 +80,7 @@ data RaftConfig = RaftConfig
     { 
       currentTerm       :: TermNumber
     , votedFor          :: Maybe Node
-    , uncommitedLog     :: Log
+    , uncommittedLog    :: Log
     , commitLength      :: CommitLength
     , currentRole       :: Role 
     , currentLeader     :: Maybe Node 
@@ -78,7 +94,7 @@ defaultRaftConfig :: RaftConfig
 defaultRaftConfig = RaftConfig
     { currentTerm = 0
     , votedFor = Nothing
-    , uncommitedLog = EmptyLog
+    , uncommittedLog = EmptyLog
     , commitLength = 0
     , currentRole = Follower
     , currentLeader = Nothing
@@ -111,7 +127,7 @@ convertToRaftConfig :: RaftStableConfig -> RaftConfig
 convertToRaftConfig stableConfig = RaftConfig
     { currentTerm = sCurrentTerm stableConfig
     , votedFor = sVotedFor stableConfig
-    , uncommitedLog = sUncommitedLog stableConfig
+    , uncommittedLog = sUncommittedLog stableConfig
     , commitLength = sCommitLength stableConfig
     , currentRole = Follower    
     , currentLeader = Nothing   
@@ -125,6 +141,43 @@ convertToRaftStableConfig :: RaftConfig -> RaftStableConfig
 convertToRaftStableConfig raftConfig = RaftStableConfig
     { sCurrentTerm = currentTerm raftConfig
     , sVotedFor = votedFor raftConfig
-    , sUncommitedLog = uncommitedLog raftConfig
+    , sUncommittedLog = uncommittedLog raftConfig
     , sCommitLength = commitLength raftConfig
     }
+
+-- Given a function that modifies a RaftConfig and a place to dump the serialized file, 
+-- it applies the changes and then serializes them 
+modifyAndPersist :: (RaftConfig -> RaftConfig) -> String -> RaftConfig -> IO RaftConfig
+modifyAndPersist modifyFun filePath config = do 
+    let updatedConfig = modifyFun config
+    writeRaftConfigToDisk updatedConfig filePath
+    return updatedConfig
+
+
+-- These functions modify RaftConfig objects, storing modifications to disk if necessary 
+setCurrentTerm :: RaftConfig -> TermNumber -> IO RaftConfig
+setCurrentTerm config newTerm = modifyAndPersist (\config -> config { currentTerm = newTerm }) configPath config
+
+setVotedFor :: RaftConfig -> Maybe Node -> IO RaftConfig
+setVotedFor config newNode = modifyAndPersist (\config -> config { votedFor = newNode }) configPath config
+
+setUncommittedLog :: RaftConfig -> Log -> IO RaftConfig
+setUncommittedLog config newLog = modifyAndPersist (\config -> config { uncommittedLog = newLog }) configPath config
+
+setCommitLength :: RaftConfig -> CommitLength -> IO RaftConfig
+setCommitLength config newLength = modifyAndPersist (\config -> config { commitLength = newLength }) configPath config
+
+setCurrentRole :: RaftConfig -> Role -> RaftConfig
+setCurrentRole config newRole = config { currentRole = newRole }
+
+setCurrentLeader :: RaftConfig -> Maybe Node -> RaftConfig
+setCurrentLeader config newLeader = config { currentLeader = newLeader }
+
+setVotesReceived :: RaftConfig -> Set Node -> RaftConfig
+setVotesReceived config newVotes = config { votesReceived = newVotes }
+
+setSentLength :: RaftConfig -> SentLogLength -> RaftConfig
+setSentLength config newLength = config { sentLength = newLength }
+
+setAckedLength :: RaftConfig -> AckedLogLength -> RaftConfig
+setAckedLength config newLength = config { ackedLength = newLength }
