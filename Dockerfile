@@ -4,11 +4,14 @@ FROM haskell:latest
 # Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# Copy the .cabal and .cabal.project files to the container
-COPY . .
+# Copy the cabal files first to leverage Docker cache
+COPY . . 
 
-# Install dependencies based on the .cabal project file
-RUN cabal update && cabal install --only-dependencies -j4
+# Install dependencies
+RUN cabal update
+RUN cabal install --only-dependencies -j4
 
-# Set the entry point to /bin/bash to access the container interactively
+# Expose necessary ports (if your application listens on a port)
+EXPOSE 8080
+
 ENTRYPOINT ["/bin/bash"]
