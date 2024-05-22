@@ -17,6 +17,11 @@ import Log2Monad
 -- External imports
 import Data.UUID.V4 (nextRandom)
 import qualified Data.ByteString.Lazy as B
+import qualified Data.Map as Map
+import Control.Monad.State
+
+
+
 
 -- Main function for testing
 main :: IO ()
@@ -52,5 +57,5 @@ main = do
 
     -- Apply logs in the RealFileSystem monad
     putStrLn "\nApplying Logs:"
-    result <- runRealFileSystem $ applyLogs log''
+    let result = execState (runMockFileSystem $ applyLogs log'') Map.empty
     print result

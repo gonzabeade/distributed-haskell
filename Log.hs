@@ -7,7 +7,9 @@ module Log (
     foldrLog,       -- Exporting the foldrLog function
     serializeLog,   -- Exporting the serializeLog function
     deserializeLog, -- Exporting the deserializeLog function
-    createLogEntry  -- Exporting a function to create logs with random UUID
+    createLogEntry, -- Exporting a function to create logs with random UUID
+    appendToLog,    -- Add new entries to a Log
+    writeLogToFile  -- Persist a Log in disk 
 ) where
 
 import Data.Aeson
@@ -15,6 +17,7 @@ import GHC.Generics (Generic)
 import Data.UUID (UUID)
 import Data.UUID.V4 (nextRandom)
 import Data.ByteString.Lazy.UTF8 (toString, fromString)
+import System.IO (withFile, IOMode(..), hPutStrLn)
 
 
 -- Supported commands for this implementation
@@ -46,6 +49,10 @@ foldrLog :: (LogEntry -> b -> b) -> b -> Log -> b
 foldrLog _ z End = z
 foldrLog f z (LogEntryNode entry rest) = f entry (foldrLog f z rest)
 
+-- Define an Append to Log function using foldrLog
+appendToLog :: LogEntry -> Log -> Log
+appendToLog entry log = foldrLog (\e acc -> LogEntryNode e acc) (LogEntryNode entry End) log
+
 -- We must allow a Log structure to be serialized and deserialized 
 -- We don't care much about the inner structure
 -- We delegate this task to the library 
@@ -72,3 +79,8 @@ createLogEntry :: String -> Command -> IO LogEntry
 createLogEntry author cmd = do
     uuid <- nextRandom
     return $ LogEntry uuid author cmd
+
+-- Write the serialized log to the log file
+writeLogToFile :: FilePath -> Log -> IO ()
+writeLogToFile path log = withFile path WriteMode $ \handle ->
+  hPutStrLn handle (serializeLog log)

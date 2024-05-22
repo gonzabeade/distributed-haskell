@@ -1,0 +1,1 @@
+{"contents":[{"command":{"contents":["","/path/to/file"],"tag":"Write"},"entryId":"02a5e108-19ca-4d2b-b167-a048c9900c71","node":"gonza"},{"contents":[{"command":{"contents":"/path/to/file","tag":"Touch"},"entryId":"34b1670c-e6eb-45c7-95b1-d789557f56a9","node":"gonza"},{"tag":"End"}],"tag":"LogEntryNode"}],"tag":"LogEntryNode"}

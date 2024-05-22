@@ -5,13 +5,17 @@
 module FileSystemMonad (
     runCommandLocally,
     FileSystemMonad(..),
-    RealFileSystem(..)
+    RealFileSystem(..), 
+    MockFileSystem(..)
 ) where
 
 import System.IO (hGetContents)
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO)
 import System.Process
+import qualified Data.Map as Map
+import Control.Monad.State
+
 
 -- Function that allows strings to be run as commands in the current shell context
 runCommandLocally :: String -> IO String
@@ -37,3 +41,14 @@ instance FileSystemMonad RealFileSystem where
     mkdir path = RealFileSystem $ void $ runCommandLocally ("mkdir " ++ path)
     rm path = RealFileSystem $ void $ runCommandLocally ("rm " ++ path)
     write path str = RealFileSystem $ void $ runCommandLocally ("echo " ++ str ++ " >> " ++ path)
+
+-- Define the MockFileSystem monad
+newtype MockFileSystem a = MockFileSystem { runMockFileSystem :: State (Map.Map FilePath String) a }
+  deriving (Functor, Applicative, Monad)
+
+-- Implement the FileSystemMonad type class for MockFileSystem
+instance FileSystemMonad MockFileSystem where
+    touch path = MockFileSystem $ modify $ Map.insert path ""
+    mkdir path = MockFileSystem $ modify $ Map.insert path ""
+    rm path = MockFileSystem $ modify $ Map.delete path
+    write path str = MockFileSystem $ modify $ Map.insert path str
