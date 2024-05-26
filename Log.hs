@@ -9,7 +9,8 @@ module Log (
     deserializeLog, -- Exporting the deserializeLog function
     createLogEntry, -- Exporting a function to create logs with random UUID
     appendToLog,    -- Add new entries to a Log
-    writeLogToFile  -- Persist a Log in disk 
+    writeLogToFile, -- Persist a Log in disk 
+    readLogFromFile
 ) where
 
 import Data.Aeson
@@ -82,5 +83,9 @@ createLogEntry author cmd = do
 
 -- Write the serialized log to the log file
 writeLogToFile :: FilePath -> Log -> IO ()
-writeLogToFile path log = withFile path WriteMode $ \handle ->
+writeLogToFile path log = withFile path ReadWriteMode $ \handle ->
   hPutStrLn handle (serializeLog log)
+
+-- Read a serialized log to the log file
+readLogFromFile :: FilePath -> IO (Maybe Log)
+readLogFromFile path = deserializeLog <$> readFile path

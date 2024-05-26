@@ -1,15 +1,20 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 
+-- External imports 
 import Network.Wai.Handler.Warp (run)
 import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (unless)
 import Servant
-import Log
 import qualified Data.ByteString.Lazy as BL
 import Data.ByteString.Lazy.UTF8 as BLU
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent (forkIO)
+import Data.Maybe (fromMaybe)
 
+-- Internal imports 
+import Log
 
 -- Define API endpoints using a strong type 
 type API =
@@ -17,66 +22,71 @@ type API =
                   :> QueryParam "cmd" String
                   :> QueryParam "path" String
                   :> QueryParam "content" String
+                  :> QueryParam "lastLogId" String
                   :> Post '[PlainText] String
-  :<|> "log" :> Get '[PlainText] String  -- New endpoint definition
+  :<|> "log" :> Get '[PlainText] String
 
--- Define handlers for the API endpoints
-server :: Server API
-server = commandHandler :<|> logHandler  -- Added logHandler
-  where
-    commandHandler :: Maybe String -> Maybe String -> Maybe String -> Maybe String -> Handler String
-    commandHandler mNodeId mCmd mPath mContent =
-      case (mNodeId, mCmd, mPath) of
-        (Just nodeId, Just cmd, Just path) -> do
-          -- Create a new LogEntry
-          entry <- liftIO $ createLogEntry nodeId (parseCommand cmd path mContent)
-          -- Deserialize the log from log.json
-          maybeLog <- liftIO $ readLogFromFile "log.json"
-          case maybeLog of
-            Just log -> do
-              -- Append the new LogEntry to the existing Log
-              let newLog = appendToLog entry log
-              -- Serialize the updated Log back to log.json
-              liftIO $ writeLogToFile "log.json" newLog
-              return $ "Command executed and logged: " ++ show entry
-            Nothing -> return "Failed to read log file"
-        _ -> return "Missing parameters"
+-- Simple function to parse a string argument into a Command 
+parseCommand :: String -> String -> Maybe String -> Command
+parseCommand "touch" path _      = Touch path
+parseCommand "mkdir" path _      = Mkdir path
+parseCommand "rm" path _         = Rm path
+parseCommand "write" path mCont  = Write (maybe "" id mCont) path
+parseCommand _ _ _               = error "Invalid command"
 
-    logHandler :: Handler String
-    logHandler = do
-        logContents <- liftIO $ BL.readFile "log.json"
-        let jsonContents = BLU.toString logContents 
-        return jsonContents
+-- Handler - POST /commands
+commandHandler :: MVar Command -> Maybe String -> Maybe String -> Maybe String -> Maybe String -> Maybe String -> Handler String
+commandHandler mvar (Just nodeId) (Just cmd) (Just path) content _ = do
+    let parsedCommand = parseCommand cmd path content
+    liftIO $ putMVar mvar parsedCommand
+    return $ "Command received and processed: " ++ show parsedCommand
+commandHandler _ _ _ _ _ _ = return "Missing required parameters"
 
-    maybeContent :: Maybe String -> String
-    maybeContent Nothing  = ""
-    maybeContent (Just c) = ", Content: " ++ c
+-- Handler - GET /log
+logHandler :: Handler String
+logHandler = liftIO $ do
+    logContents <- BL.readFile "log.json"
+    return $ BLU.toString logContents
 
-    parseCommand :: String -> String -> Maybe String -> Command
-    parseCommand "touch" path _      = Touch path
-    parseCommand "mkdir" path _      = Mkdir path
-    parseCommand "rm" path _         = Rm path
-    parseCommand "write" path mCont  = Write (maybe "" id mCont) path
-    parseCommand _ _ _               = error "Invalid command"
+-- Run main loop 
+-- Function to continuously read and log the value from the MVar
+-- It blocks whenever the MVar is empty, there is nothing to do 
+-- This function is to be run in a thread and orchestrates messages 
+runMainLoop :: FilePath -> MVar Command -> IO ()
+runMainLoop logFilePath mvar = do
+  -- Deserialize the log from file
+  maybeLog <- readLogFromFile logFilePath
+  let log = fromMaybe End maybeLog
+  
+  -- Take a command from the MVar
+  command <- takeMVar mvar
 
-    logEntry :: LogEntry -> Handler ()
-    logEntry entry = do
-      -- Implement logic to append the log entry to the log
-      -- For now, let's just print the entry
-      liftIO $ putStrLn $ "Logged entry: " ++ show entry
+  -- Create a log entry with a random UUID
+  logEntry <- createLogEntry "node" command
 
-    readLogFromFile :: FilePath -> IO (Maybe Log)
-    readLogFromFile path = deserializeLog <$> readFile path
+  -- Append the new log entry to the log
+  let newLog = appendToLog logEntry log
+  
+  -- Log the value
+  putStrLn $ "Logged value: " ++ show newLog
 
-    writeLogToFile :: FilePath -> Log -> IO ()
-    writeLogToFile path log = writeFile path (serializeLog log)
+  -- Serialize new log
+  writeLogToFile logFilePath newLog
 
--- Define the API type and server
+  -- Recur with the updated log
+  runMainLoop logFilePath mvar
+
+-- Start the server
 api :: Proxy API
 api = Proxy
 
+server :: MVar Command -> Server API
+server mvar = commandHandler mvar :<|> logHandler
+
+-- Main 
 main :: IO ()
 main = do
+
   -- Check if the log file exists
   logFileExists <- doesFileExist "log.json"
   
@@ -84,6 +94,10 @@ main = do
   unless logFileExists $ do
     let emptyLog = End
     writeLogToFile "log.json" emptyLog
-  
-  -- Start the server
-  run 8080 $ serve api server
+
+  -- Initialize mvar 
+  mvar <- newEmptyMVar
+  _ <- forkIO $ runMainLoop "log.json" mvar
+
+  -- Initialize server
+  run 8080 $ serve api (server mvar)

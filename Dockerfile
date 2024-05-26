@@ -4,14 +4,12 @@ FROM haskell:latest
 # Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# Copy the cabal files first to leverage Docker cache
-COPY . . 
+# Copy only the .cabal file first to leverage Docker cache
+COPY . .
 
 # Install dependencies
 RUN cabal update
-RUN cabal install --only-dependencies -j4
+RUN cabal install
 
-# Expose necessary ports (if your application listens on a port)
-EXPOSE 8080
-
-ENTRYPOINT ["/bin/bash"]
+# Set the default command to run when the container starts
+CMD ["cabal", "run"]
