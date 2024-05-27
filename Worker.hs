@@ -1,21 +1,76 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 import System.IO (hFlush, stdout, withFile, IOMode(..), hPutStrLn)
-import System.Directory (doesDirectoryExist, doesFileExist, createDirectory, listDirectory, removeFile, removeDirectoryRecursive)
+import System.Directory (doesDirectoryExist, doesFileExist, createDirectory, listDirectory, removeFile, removeDirectoryRecursive, setCurrentDirectory)
 import Control.Monad (forM_)
 import Data.List (isPrefixOf)
 import Data.Maybe (listToMaybe, fromMaybe)
 import System.Environment (lookupEnv)
+import System.FilePath (takeDirectory)
+
+-- Internal imports 
+import Log
+import Log2Monad
+import FileSystemMonad
+
+-- Webhook imports
+import Control.Concurrent (forkIO)
+import Control.Monad.IO.Class (liftIO)
+import Network.Wai.Handler.Warp (run)
+import Servant
+import Data.Aeson (FromJSON, ToJSON)
+import GHC.Generics (Generic)
+import qualified Data.ByteString.Lazy.Char8 as BL
+import Data.Aeson
+import Data.Word (Word8)
+import Data.Char (ord)
+
+import qualified Data.Text.IO as TIO
+import Data.Text (Text)
+import System.IO (IOMode(..), withFile)
+
+-- Webhook functions
+type LogAPI = "log" :> ReqBody '[PlainText] Text :> Post '[PlainText] NoContent
+
+logHandler :: FilePath -> FilePath -> Text -> Handler NoContent
+logHandler logPath pwd payload = do
+    liftIO $ do
+        putStrLn "<New Log from master received>"
+        withFile logPath WriteMode (\h -> TIO.hPutStrLn h payload)
+        maybeLog <- readLogFromFile logPath
+        let log = fromMaybe End maybeLog
+        putStrLn $ "Log: " ++ show maybeLog
+        removeDirectoryRecursive pwd
+        createDirectory pwd
+        setCurrentDirectory pwd
+        runRealFileSystem (applyLogs log)
+        setCurrentDirectory ".."    
+    return NoContent
+
+logAPI :: Proxy LogAPI
+logAPI = Proxy
+
+server :: FilePath -> FilePath -> Server LogAPI
+server logJson rootDir = logHandler logJson rootDir
+
+app :: FilePath -> FilePath -> Application
+app logJson rootDir = serve logAPI (server logJson rootDir)
 
 
 -- Create a simple algebraic type to wrap around commands runnable in the worker 
 -- Note: this is different than Log.Command because this allows read-only commands 
 data WorkerUICommand
-    = Ls FilePath
-    | Write String FilePath
-    | Touch FilePath
-    | Mkdir FilePath
-    | Tree FilePath
-    | Rm FilePath
-    | Unknown
+    = UILs FilePath
+    | UIWrite String FilePath
+    | UITouch FilePath
+    | UIMkdir FilePath
+    | UITree FilePath
+    | UIRm FilePath
+    | UIUnknown
     deriving Show
 
 -- Simple aux function to fetch node name from env. variable
@@ -25,19 +80,30 @@ getEnv id = fromMaybe "Unknown" <$> lookupEnv id
 nodeName :: IO String
 nodeName = getEnv "NODE_NAME"
 
+-- Function to get the root directory - file system namespace 
+getRootDir :: IO FilePath
+getRootDir = return "root-worker"  
+
+-- Function to get the log json 
+getLogJson :: IO FilePath
+getLogJson = return "log-node.json"  
+
 -- Main function
+-- Initialize webhook thread to listen to changes from Master 
 -- Node setup and, when ready, begins the shellLoop 
+-- Main function to run the server
 main :: IO ()
 main = do
     name <- nodeName
     putStrLn $ "You are running a Haskell Distributed Node!"
     putStrLn $ "Node Name: " ++ name
     rootDir <- getRootDir  -- Get the root directory
-    shellLoop rootDir
+    logJson <- getLogJson  -- Get the root directory
 
--- Function to get the root directory - file system namespace 
-getRootDir :: IO FilePath
-getRootDir = return "root-worker"  
+    -- Spawn a new thread for the servant server
+    _ <- forkIO $ run 8080 (app logJson rootDir)  -- Change the port number as needed
+
+    shellLoop rootDir
 
 -- Run the shellLoop
 shellLoop :: FilePath -> IO ()
@@ -55,34 +121,34 @@ shellLoop rootDir = do
 parseCommand :: String -> WorkerUICommand
 parseCommand input =
     case words input of
-        ("ls" : filePath : _)          -> Ls filePath
-        ("write" : str : filePath : _) -> Write str filePath
-        ("touch" : filePath : _)       -> Touch filePath
-        ("mkdir" : filePath : _)       -> Mkdir filePath
-        ("tree" : filePath : _)        -> Tree filePath
-        ("rm" : filePath : _)          -> Rm filePath
-        _                              -> Unknown
+        ("ls" : filePath : _)          -> UILs filePath
+        ("write" : str : filePath : _) -> UIWrite str filePath
+        ("touch" : filePath : _)       -> UITouch filePath
+        ("mkdir" : filePath : _)       -> UIMkdir filePath
+        ("tree" : filePath : _)        -> UITree filePath
+        ("rm" : filePath : _)          -> UIRm filePath
+        _                              -> UIUnknown
 
 
 executeCommand :: FilePath -> WorkerUICommand -> IO ()
 
 -- Execute command - write operations
-executeCommand rootDir (Write str filePath) = do
+executeCommand rootDir (UIWrite str filePath) = do
     let fullPath = rootDir ++ "/" ++ filePath
     withFile fullPath AppendMode (\handle -> hPutStrLn handle str)
     putStrLn $ "Wrote to " ++ fullPath
 
-executeCommand rootDir (Touch filePath) = do
+executeCommand rootDir (UITouch filePath) = do
     let fullPath = rootDir ++ "/" ++ filePath
     writeFile fullPath ""
     putStrLn $ "Created file " ++ fullPath
 
-executeCommand rootDir (Mkdir filePath) = do
+executeCommand rootDir (UIMkdir filePath) = do
     let fullPath = rootDir ++ "/" ++ filePath
     createDirectory fullPath
     putStrLn $ "Created directory " ++ fullPath
 
-executeCommand rootDir (Rm filePath) = do
+executeCommand rootDir (UIRm filePath) = do
     let fullPath = rootDir ++ "/" ++ filePath
     isFile <- doesFileExist fullPath
     isDir <- doesDirectoryExist fullPath
@@ -97,7 +163,7 @@ executeCommand rootDir (Rm filePath) = do
             else putStrLn $ "Path " ++ fullPath ++ " does not exist."
 
 -- Execute command - read operations
-executeCommand rootDir (Ls filePath) = do
+executeCommand rootDir (UILs filePath) = do
     let fullPath = rootDir ++ "/" ++ filePath
     exists <- doesDirectoryExist fullPath
     if exists
@@ -106,14 +172,14 @@ executeCommand rootDir (Ls filePath) = do
         forM_ contents putStrLn
     else putStrLn $ "Directory " ++ fullPath ++ " does not exist."
 
-executeCommand rootDir (Tree filePath) = do
+executeCommand rootDir (UITree filePath) = do
     let fullPath = rootDir ++ "/" ++ filePath
     exists <- doesDirectoryExist fullPath
     if exists
     then printTree 0 fullPath
     else putStrLn $ "Directory " ++ fullPath ++ " does not exist."
 
-executeCommand _ Unknown = putStrLn "Unknown command"
+executeCommand _ UIUnknown = putStrLn "Unknown command"
 
 -- Aux function to print directory in tree format
 printTree :: Int -> FilePath -> IO ()
