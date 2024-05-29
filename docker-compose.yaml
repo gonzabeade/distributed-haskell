@@ -1,43 +1,22 @@
-version: '3'
-
-networks:
-  my_network:
-    ipam:
-      config:
-        - subnet: 192.168.1.0/24
+version: '3.8'
 
 services:
-  master:
-    image: distributed-haskell
+  haskell-master:
+    image: distributed-haskell:latest
     networks:
-      my_network:
-        ipv4_address: 192.168.1.1
-    command: cabal run master
+      - haskell-network
+    command: ["cabal", "run", "master"]
+    container_name: haskell-master
 
-  node2:
-    image: distributed-haskell
+  haskell-worker:
+    image: distributed-haskell:latest
     networks:
-      my_network:
-        ipv4_address: 192.168.1.2
-    command: cabal run worker
+      - haskell-network
+    stdin_open: true
+    tty: true
+    command: ["/bin/bash"]
+    container_name: haskell-worker
 
-  node3:
-    image: distributed-haskell
-    networks:
-      my_network:
-        ipv4_address: 192.168.1.3
-    command: cabal run worker
-
-  node4:
-    image: distributed-haskell
-    networks:
-      my_network:
-        ipv4_address: 192.168.1.4
-    command: cabal run worker
-
-  node5:
-    image: distributed-haskell
-    networks:
-      my_network:
-        ipv4_address: 192.168.1.5
-    command: cabal run worker
+networks:
+  haskell-network:
+    driver: bridge

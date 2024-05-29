@@ -11,5 +11,5 @@ COPY . .
 RUN cabal update
 RUN cabal install
 
-# Set the default command to run when the container starts
-CMD ["cabal", "run"]
+RUN mkdir root-worker
+

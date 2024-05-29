@@ -11,6 +11,8 @@ import Data.List (isPrefixOf)
 import Data.Maybe (listToMaybe, fromMaybe)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory)
+import System.Process
+
 
 -- Internal imports 
 import Log
@@ -105,6 +107,20 @@ main = do
 
     shellLoop rootDir
 
+-- Function to make an API call POST 
+makeAPIpost :: String -> Int -> String -> String -> String -> String -> Int -> IO String
+makeAPIpost host port cmd path content nodeId lastLogId = do
+    let url = "http://" ++ host ++ ":" ++ show port ++ "/commands?cmd=" ++ cmd ++ "&path=" ++ path ++ "&content=" ++ content ++ "&nodeId=" ++ nodeId ++ "&lastLogId=" ++ show lastLogId
+    let args = ["-X", "POST", url, "-v"] 
+    readProcess "curl" args ""
+
+-- Function to make an API call
+makeAPIget :: String -> Int -> IO String
+makeAPIget host port = do
+    let url = "http://" ++ host ++ ":" ++ show port ++ "/log"
+    let args = ["-X", "GET", url, "-v", "--output", "log-request.json"]
+    readProcess "curl" args ""
+
 -- Run the shellLoop
 shellLoop :: FilePath -> IO ()
 shellLoop rootDir = do
@@ -134,33 +150,20 @@ executeCommand :: FilePath -> WorkerUICommand -> IO ()
 
 -- Execute command - write operations
 executeCommand rootDir (UIWrite str filePath) = do
-    let fullPath = rootDir ++ "/" ++ filePath
-    withFile fullPath AppendMode (\handle -> hPutStrLn handle str)
-    putStrLn $ "Wrote to " ++ fullPath
+    _ <- makeAPIpost "haskell-master" 8080 "write" filePath str "nodeIdHolaHola" 56
+    return ()
 
 executeCommand rootDir (UITouch filePath) = do
-    let fullPath = rootDir ++ "/" ++ filePath
-    writeFile fullPath ""
-    putStrLn $ "Created file " ++ fullPath
+    _ <- makeAPIpost "haskell-master" 8080 "touch" filePath "" "nodeIdHolaHola" 56
+    return ()
 
 executeCommand rootDir (UIMkdir filePath) = do
-    let fullPath = rootDir ++ "/" ++ filePath
-    createDirectory fullPath
-    putStrLn $ "Created directory " ++ fullPath
+    _ <- makeAPIpost "haskell-master" 8080 "mkdir" filePath "" "nodeIdHolaHola" 56
+    return ()
 
 executeCommand rootDir (UIRm filePath) = do
-    let fullPath = rootDir ++ "/" ++ filePath
-    isFile <- doesFileExist fullPath
-    isDir <- doesDirectoryExist fullPath
-    if isFile
-        then do
-            removeFile fullPath
-            putStrLn $ "Removed file " ++ fullPath
-        else if isDir
-            then do
-                removeDirectoryRecursive fullPath
-                putStrLn $ "Removed directory " ++ fullPath
-            else putStrLn $ "Path " ++ fullPath ++ " does not exist."
+    _ <- makeAPIpost "haskell-master" 8080 "rm" filePath "" "nodeIdHolaHola" 56
+    return ()
 
 -- Execute command - read operations
 executeCommand rootDir (UILs filePath) = do

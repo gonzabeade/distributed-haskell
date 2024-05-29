@@ -12,9 +12,18 @@ import Data.ByteString.Lazy.UTF8 as BLU
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent (forkIO)
 import Data.Maybe (fromMaybe)
+import System.Process
+
 
 -- Internal imports 
 import Log
+
+makeAPIpost :: String -> Int -> IO String
+makeAPIpost host port = do
+    let url = "http://" ++ host ++ ":" ++ show port ++ "/log"
+    let dataFilePath = "log.json"
+    let args = ["-X", "POST", url, "--data-binary", "@" ++ dataFilePath, "-H", "Content-Type: text/plain; charset=utf-8", "-v"] 
+    readProcess "curl" args ""
 
 -- Define API endpoints using a strong type 
 type API =
@@ -72,6 +81,9 @@ runMainLoop logFilePath mvar = do
 
   -- Serialize new log
   writeLogToFile logFilePath newLog
+
+  -- Broadcast
+  makeAPIpost "haskell-worker" 8080
 
   -- Recur with the updated log
   runMainLoop logFilePath mvar
