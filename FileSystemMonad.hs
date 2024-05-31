@@ -13,14 +13,19 @@ import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import System.Process
 import qualified Data.Map as Map
-import Control.Monad.State
+import System.Exit
+import Control.Exception (evaluate)
 
 -- Function that allows strings to be run as commands in the current shell context
 runCommandLocally :: String -> IO String
 runCommandLocally cmd = do
-    (_, Just hout, _, _) <- createProcess (shell cmd) { std_out = CreatePipe }
+    (_, Just hout, _, ph) <- createProcess (shell cmd) { std_out = CreatePipe }
     output <- hGetContents hout
-    return output
+    exitCode <- waitForProcess ph
+    -- Ensure the process has exited successfully
+    case exitCode of
+        ExitSuccess   -> return output
+        ExitFailure _ -> error "Command failed to execute successfully"
 
 -- Define the FileSystemMonad type class
 class Monad m => FileSystemMonad m where

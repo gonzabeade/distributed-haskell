@@ -49,8 +49,10 @@ logHandler logPath pwd payload = do
         removeDirectoryRecursive pwd
         createDirectory pwd
         setCurrentDirectory pwd
+
         runRealFileSystem (applyLogs log)
         runOutputFileSystem (applyLogs log)
+        
         setCurrentDirectory ".."    
     return NoContent
 
@@ -151,19 +153,19 @@ executeCommand :: FilePath -> WorkerUICommand -> IO ()
 
 -- Execute command - write operations
 executeCommand rootDir (UIWrite str filePath) = do
-    _ <- makeAPIpost "haskell-master" 8080 "write" filePath str "nodeIdHolaHola" 56
+    _ <- makeAPIpost "haskell-master" 8080 "write" filePath str "haskell-worker" 56
     return ()
 
 executeCommand rootDir (UITouch filePath) = do
-    _ <- makeAPIpost "haskell-master" 8080 "touch" filePath "" "nodeIdHolaHola" 56
+    _ <- makeAPIpost "haskell-master" 8080 "touch" filePath "" "haskell-worker" 56
     return ()
 
 executeCommand rootDir (UIMkdir filePath) = do
-    _ <- makeAPIpost "haskell-master" 8080 "mkdir" filePath "" "nodeIdHolaHola" 56
+    _ <- makeAPIpost "haskell-master" 8080 "mkdir" filePath "" "haskell-worker" 56
     return ()
 
 executeCommand rootDir (UIRm filePath) = do
-    _ <- makeAPIpost "haskell-master" 8080 "rm" filePath "" "nodeIdHolaHola" 56
+    _ <- makeAPIpost "haskell-master" 8080 "rm" filePath "" "haskell-worker" 56
     return ()
 
 -- Execute command - read operations
