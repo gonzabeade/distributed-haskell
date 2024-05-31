@@ -7,15 +7,52 @@ services:
       - haskell-network
     command: ["cabal", "run", "master"]
     container_name: haskell-master
+    environment:
+      - Q_WORKERS=2
 
-  haskell-worker:
+  haskell-worker-1:
     image: distributed-haskell:latest
     networks:
       - haskell-network
     stdin_open: true
     tty: true
     command: ["/bin/bash"]
-    container_name: haskell-worker
+    container_name: haskell-worker-1
+    environment:
+      - NODE_NAME=haskell-worker-1
+  
+  haskell-worker-2:
+    image: distributed-haskell:latest
+    networks:
+      - haskell-network
+    stdin_open: true
+    tty: true
+    command: ["/bin/bash"]
+    container_name: haskell-worker-2
+    environment:
+      - NODE_NAME=haskell-worker-2
+
+  haskell-worker-3:
+    image: distributed-haskell:latest
+    networks:
+      - haskell-network
+    stdin_open: true
+    tty: true
+    command: ["/bin/bash"]
+    container_name: haskell-worker-3
+    environment:
+      - NODE_NAME=haskell-worker-3
+
+  haskell-worker-4:
+    image: distributed-haskell:latest
+    networks:
+      - haskell-network
+    stdin_open: true
+    tty: true
+    command: ["/bin/bash"]
+    container_name: haskell-worker-4
+    environment:
+      - NODE_NAME=haskell-worker-4
 
 networks:
   haskell-network:

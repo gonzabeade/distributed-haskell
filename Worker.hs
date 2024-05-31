@@ -41,15 +41,16 @@ type LogAPI = "log" :> ReqBody '[PlainText] Text :> Post '[PlainText] NoContent
 logHandler :: FilePath -> FilePath -> Text -> Handler NoContent
 logHandler logPath pwd payload = do
     liftIO $ do
-        putStrLn "<New Log from master received>"
+        putStrLn "<New Log from master received>\n"
         withFile logPath WriteMode (\h -> TIO.hPutStrLn h payload)
         maybeLog <- readLogFromFile logPath
         let log = fromMaybe End maybeLog
-        putStrLn $ "Log: " ++ show maybeLog
+        putStrLn $ "Log: " ++ show maybeLog ++ "\n"
         removeDirectoryRecursive pwd
         createDirectory pwd
         setCurrentDirectory pwd
         runRealFileSystem (applyLogs log)
+        runOutputFileSystem (applyLogs log)
         setCurrentDirectory ".."    
     return NoContent
 

@@ -5,7 +5,7 @@
 import Network.Wai.Handler.Warp (run)
 import System.Directory (doesFileExist)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad (unless)
+import Control.Monad (unless, mapM_)
 import Servant
 import qualified Data.ByteString.Lazy as BL
 import Data.ByteString.Lazy.UTF8 as BLU
@@ -13,6 +13,12 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent (forkIO)
 import Data.Maybe (fromMaybe)
 import System.Process
+import Data.Maybe (fromMaybe)
+import Text.Read (readMaybe) 
+import System.Environment (getEnv)
+import Control.Exception (catch, SomeException)
+
+
 
 
 -- Internal imports 
@@ -22,8 +28,11 @@ makeAPIpost :: String -> Int -> IO String
 makeAPIpost host port = do
     let url = "http://" ++ host ++ ":" ++ show port ++ "/log"
     let dataFilePath = "log.json"
-    let args = ["-X", "POST", url, "--data-binary", "@" ++ dataFilePath, "-H", "Content-Type: text/plain; charset=utf-8", "-v"] 
-    readProcess "curl" args ""
+    let args = ["-X", "POST", url, "--data-binary", "@" ++ dataFilePath, "-H", "Content-Type: text/plain; charset=utf-8", "-v", "&"] 
+    (readProcess "curl" args "") `catch` handleException
+  where
+    handleException :: SomeException -> IO String
+    handleException e = return ("Could not reach worker: " ++ host ++ ". Error: " ++ show e)
 
 -- Define API endpoints using a strong type 
 type API =
@@ -61,8 +70,8 @@ logHandler = liftIO $ do
 -- Function to continuously read and log the value from the MVar
 -- It blocks whenever the MVar is empty, there is nothing to do 
 -- This function is to be run in a thread and orchestrates messages 
-runMainLoop :: FilePath -> MVar Command -> IO ()
-runMainLoop logFilePath mvar = do
+runMainLoop :: [String] -> FilePath -> MVar Command -> IO ()
+runMainLoop workers logFilePath mvar = do
   -- Deserialize the log from file
   maybeLog <- readLogFromFile logFilePath
   let log = fromMaybe End maybeLog
@@ -83,10 +92,10 @@ runMainLoop logFilePath mvar = do
   writeLogToFile logFilePath newLog
 
   -- Broadcast
-  makeAPIpost "haskell-worker" 8080
+  mapM_ (\worker -> makeAPIpost worker 8080) workers
 
   -- Recur with the updated log
-  runMainLoop logFilePath mvar
+  runMainLoop workers logFilePath mvar
 
 -- Start the server
 api :: Proxy API
@@ -99,6 +108,11 @@ server mvar = commandHandler mvar :<|> logHandler
 main :: IO ()
 main = do
 
+  -- We will use up to 1 worker if not set
+  qnodesStr <- getEnv "Q_WORKERS"
+  let qnodes = fromMaybe 1 (readMaybe qnodesStr :: Maybe Int)
+  let workers = Prelude.foldr (\i acc -> ("haskell-worker-" ++ show i) : acc) [] [1..qnodes]
+
   -- Check if the log file exists
   logFileExists <- doesFileExist "log.json"
   
@@ -109,7 +123,7 @@ main = do
 
   -- Initialize mvar 
   mvar <- newEmptyMVar
-  _ <- forkIO $ runMainLoop "log.json" mvar
+  _ <- forkIO $ runMainLoop workers "log.json" mvar
 
   -- Initialize server
   run 8080 $ serve api (server mvar)
